@@ -198,6 +198,10 @@ final class MirrorController: ObservableObject {
             message = "播放状态读取中"
             return
         }
+        // An explicit playback shortcut is the user's direct override.
+        // Clear a stale takeover first; otherwise silent/muted video can keep
+        // takeover active forever and block both this shortcut and later AI events.
+        clearTakeover()
         _ = request(target)
     }
 
