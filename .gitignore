@@ -1,0 +1,13 @@
+.DS_Store
+.build/
+.swiftpm/
+.probe-check/
+dist/
+*.xcodeproj/xcuserdata/
+DerivedData/
+test-inbox/
+*.preview.json
+__pycache__/
+*.pyc
+*.dmg
+*.zip
