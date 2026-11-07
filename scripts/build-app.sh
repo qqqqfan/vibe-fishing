@@ -33,8 +33,8 @@ cat > "$RELAY_OUTPUT/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Vibe Fishing</string>
 <key>CFBundleExecutable</key><string>MoyuRelay</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.9.57</string>
-<key>CFBundleVersion</key><string>76</string>
+<key>CFBundleShortVersionString</key><string>0.9.58</string>
+<key>CFBundleVersion</key><string>77</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>

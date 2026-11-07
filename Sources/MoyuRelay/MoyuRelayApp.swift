@@ -16,6 +16,9 @@ final class RelayAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     private var store: RelayStore!
     private var window: NSWindow!
     private var companion: NSPanel?
+    /// True while the strip is tucked away because the mirror window is
+    /// minimized (or its app hidden); it returns with the mirror.
+    private var companionHiddenWithMirror = false
     private var status: NSStatusItem!
     private var flowSubscription: AnyCancellable?
 
@@ -138,12 +141,39 @@ final class RelayAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     }
 
     private func positionCompanion() {
-        guard let companion, companion.isVisible else { return }
+        guard let companion else { return }
+        if companionHiddenWithMirror {
+            if mirrorTucked() { return }
+            companionHiddenWithMirror = false
+            guard !store.detailsVisible else { return }
+            companion.orderFrontRegardless()
+        }
+        guard companion.isVisible else { return }
+        // The strip rides with the mirror: when the mirror window is minimized
+        // or its app hidden, tuck the strip away instead of letting it float
+        // above unrelated apps like Chrome.
+        if mirrorTucked() {
+            companionHiddenWithMirror = true
+            companion.orderOut(nil)
+            return
+        }
         if let mirror = store.mirror.window {
             store.dock.moveCompanionAbove(companion, above: mirror)
         } else if let target = store.selectedWindow {
             store.dock.moveCompanion(companion, beside: target)
         }
+    }
+
+    /// The mirror window is minimized or its app is hidden.
+    private func mirrorTucked() -> Bool {
+        guard let mirror = store.mirror.window,
+              let app = NSRunningApplication(processIdentifier: mirror.pid), !app.isTerminated else { return false }
+        var minimized: CFTypeRef?
+        if AXUIElementCopyAttributeValue(mirror.element, kAXMinimizedAttribute as CFString, &minimized) == .success,
+           (minimized as? Bool) == true {
+            return true
+        }
+        return app.isHidden
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
