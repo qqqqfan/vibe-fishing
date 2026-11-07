@@ -93,13 +93,22 @@ struct LaunchHomeView: View {
                     Text("\(visibleIndex + 1) / \(visibleSteps.count)")
                         .font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(VFTheme.muted)
                 }
-                HStack(spacing: 5) {
+                HStack(alignment: .top, spacing: 5) {
                     ForEach(Array(visibleSteps.enumerated()), id: \.element.rawValue) { index, step in
-                        Capsule().fill(index <= visibleIndex ? VFTheme.accent : VFTheme.lilac)
-                            .frame(height: 5)
-                            .overlay(Capsule().stroke(VFTheme.outline.opacity(0.30), lineWidth: 0.75))
-                            .help(store.launch.stepTitle(step))
-                            .accessibilityLabel("\(store.launch.stepTitle(step))，\(index < visibleIndex ? "已完成" : index == visibleIndex ? "当前步骤" : "待完成")")
+                        VStack(spacing: 4) {
+                            Capsule().fill(index <= visibleIndex ? VFTheme.accent : VFTheme.lilac)
+                                .frame(height: 5)
+                                .overlay(Capsule().stroke(VFTheme.outline.opacity(0.30), lineWidth: 0.75))
+                            Text(stepShortLabel(step))
+                                .font(.system(size: 9.5, weight: index == visibleIndex ? .semibold : .regular))
+                                .foregroundStyle(index == visibleIndex ? VFTheme.accent : VFTheme.muted)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                        .help("第 \(index + 1) 步 · \(stepHint(step))")
+                        .accessibilityLabel("第 \(index + 1) 步 \(stepHint(step))，\(index < visibleIndex ? "已完成" : index == visibleIndex ? "当前步骤" : "待完成")")
                     }
                 }
             }
@@ -142,6 +151,30 @@ struct LaunchHomeView: View {
         default: return "link"
         }
     }
+    /// One-line purpose of each setup step, shown on hover.
+    private func stepHint(_ step: LaunchStep) -> String {
+        switch step {
+        case .grantPermissions: return "macOS 授权"
+        case .openAIClient: return "打开支持的 AI 工具"
+        case .openPhoneMirror: return "打开 iPhone 镜像"
+        case .openPreferredPhoneApp: return "在镜像里打开想刷的短视频/短剧 App"
+        case .arrangeWindows: return "一键整理窗口开始工作/摸鱼"
+        default: return store.launch.stepTitle(step)
+        }
+    }
+
+    /// Compact label under each progress segment.
+    private func stepShortLabel(_ step: LaunchStep) -> String {
+        switch step {
+        case .grantPermissions: return "macOS 授权"
+        case .openAIClient: return "打开 AI 工具"
+        case .openPhoneMirror: return "iPhone 镜像"
+        case .openPreferredPhoneApp: return "打开短视频"
+        case .arrangeWindows: return "整理窗口"
+        default: return ""
+        }
+    }
+
     private var stepTitle: String {
         if automaticSetup { return store.launch.isBusy ? "连接即将就绪" : "继续完成连接" }
         switch currentStep {
