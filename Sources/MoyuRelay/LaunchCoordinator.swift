@@ -235,7 +235,7 @@ final class LaunchCoordinator: ObservableObject {
                 guard let self else { return }
                 guard self.flow.currentStep == .openAIClient else { return }
                 store.refreshWindows()
-                if let window = store.windows.first(where: { $0.bundleID == bundleID }) {
+                if let window = store.windows.first(where: { $0.bundleID == bundleID && $0.liveFrame != nil }) {
                     store.selectedWindowID = window.id
                     NSApp.activate(ignoringOtherApps: true)
                     self.advanceCurrentStep()
@@ -433,15 +433,18 @@ final class LaunchCoordinator: ObservableObject {
                 return "在系统设置中允许“Vibe Fishing”使用辅助功能。"
             }
         case .openAIClient:
-            // Simple: require at least one visible AI window.
-            // One window → auto-select. Multiple → frontmost. None → block.
+            // Require at least one on-screen AI window. Minimized or hidden
+            // windows cannot be scanned or arranged and must not silently
+            // auto-pass; with none visible the step stays at the picker so the
+            // user can open or restore one.
             store.refreshWindows()
-            if store.windows.isEmpty {
+            let visible = store.windows.filter { $0.liveFrame != nil }
+            if visible.isEmpty {
                 return "选择要使用的 AI 应用。"
             }
-            if store.selectedWindowID.isEmpty || !store.windows.contains(where: { $0.id == store.selectedWindowID }) {
+            if store.selectedWindowID.isEmpty || !visible.contains(where: { $0.id == store.selectedWindowID }) {
                 let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-                let pick = store.windows.first(where: { $0.pid == frontPID }) ?? store.windows.first
+                let pick = visible.first(where: { $0.pid == frontPID }) ?? visible.first
                 store.selectedWindowID = pick?.id ?? ""
             }
             if let pid = store.selectedWindow?.pid {
@@ -481,9 +484,28 @@ final class LaunchCoordinator: ObservableObject {
                 if !candidates.isEmpty { break }
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
-            let selected = candidates.first { $0.id == store.selectedWindowID } ?? candidates.first
-            guard let selected else { return "无法读取 AI 或终端窗口。请确认辅助功能已授权。" }
+            guard let initial = candidates.first(where: { $0.id == store.selectedWindowID }) ?? candidates.first else {
+                return "无法读取 AI 或终端窗口。请确认辅助功能已授权。"
+            }
+            var selected = initial
             store.selectedWindowID = selected.id
+            // A minimized agent window has no on-screen frame and cannot be
+            // arranged; restoring it here keeps the step from blocking forever.
+            if selected.liveFrame == nil {
+                AXUIElementSetAttributeValue(selected.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                for _ in 0..<15 {
+                    guard flow.canExecute(command), !Task.isCancelled else { return nil }
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    store.refreshWindows()
+                    if let fresh = store.windows.first(where: { $0.id == selected.id }), fresh.liveFrame != nil {
+                        selected = fresh
+                        break
+                    }
+                }
+                guard selected.liveFrame != nil else {
+                    return "AI 应用窗口是最小化的，自动恢复没有成功。点一下它在 Dock 里的图标显示窗口，再点继续。"
+                }
+            }
             guard let mirror = store.mirror.window else { return "镜像窗口已关闭。" }
             if autoArrangeWindows {
                 let result = await store.dock.layoutSideBySide(agent: selected, mirror: mirror)
