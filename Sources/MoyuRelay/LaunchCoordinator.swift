@@ -292,6 +292,12 @@ final class LaunchCoordinator: ObservableObject {
 
     /// Connection readiness is checked independently of window docking.
     /// Silence is a valid paused video and must never mean disconnected.
+    private static func isMinimized(_ window: ClientWindow) -> Bool {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(window.element, kAXMinimizedAttribute as CFString, &value) == .success
+            && (value as? Bool) == true
+    }
+
     private func checkConnectionHealth() {
         guard isStarted, let store else { missingMirrorChecks = 0; return }
         let now = Date().timeIntervalSince1970
@@ -303,22 +309,37 @@ final class LaunchCoordinator: ObservableObject {
         }
         if store.playback.kind == .mirror {
             guard let window = store.mirror.window,
-                  let app = NSRunningApplication(processIdentifier: window.pid), !app.isTerminated,
-                  window.liveFrame != nil else {
+                  let app = NSRunningApplication(processIdentifier: window.pid), !app.isTerminated else {
                 missingMirrorChecks += 1
                 if missingMirrorChecks >= 2 {
                     interruptConnection(at: .openPhoneMirror, reason: "iPhone 镜像窗口已断开，请重新连接。")
                 }
                 return
             }
-            missingMirrorChecks = 0
-            if let blocker = Self.mirrorConnectionBlocker(window) {
-                interruptConnection(at: .openPhoneMirror, reason: blocker)
-                return
-            }
-            guard store.mirror.controlEnabled else {
-                interruptConnection(at: .connectPlayback, reason: "镜像播放控制不可用，请重新连接。")
-                return
+            // Minimizing/hiding the mirror is an intentional way to get it
+            // out of the way, not a disconnection. Keep AI listening and the
+            // connection state; MirrorController queues playback intent until
+            // the window is visible again.
+            let tucked = app.isHidden || Self.isMinimized(window)
+            if tucked {
+                missingMirrorChecks = 0
+            } else {
+                guard window.liveFrame != nil else {
+                    missingMirrorChecks += 1
+                    if missingMirrorChecks >= 2 {
+                        interruptConnection(at: .openPhoneMirror, reason: "iPhone 镜像窗口已断开，请重新连接。")
+                    }
+                    return
+                }
+                missingMirrorChecks = 0
+                if let blocker = Self.mirrorConnectionBlocker(window) {
+                    interruptConnection(at: .openPhoneMirror, reason: blocker)
+                    return
+                }
+                guard store.mirror.controlEnabled else {
+                    interruptConnection(at: .connectPlayback, reason: "镜像播放控制不可用，请重新连接。")
+                    return
+                }
             }
         }
         guard store.listening else {

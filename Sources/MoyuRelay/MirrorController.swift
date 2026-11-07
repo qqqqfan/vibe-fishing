@@ -136,6 +136,8 @@ final class MirrorController: ObservableObject {
     }
     private var lastClickAt: TimeInterval = -.infinity
     private var manualInputDuringRequest = false
+    /// Latest playback intent received while the mirror is minimized/hidden.
+    private var deferredTarget: KnownState?
     /// True while the user appears to be using the mirrored phone for
     /// something other than the video feed: playback clicks are skipped,
     /// attention reminders still fire. Cleared as soon as audio returns.
@@ -289,7 +291,7 @@ final class MirrorController: ObservableObject {
     /// AI works, means the video itself stopped. Reported once; never clicked,
     /// because a tap on a finished video can do something other than resume.
     private func checkForStall() {
-        guard agentWorking, observationEnabled, !isInspecting, !toggle.hasActiveRequest else { return }
+        guard agentWorking, observationEnabled, !mirrorIsTucked, !isInspecting, !toggle.hasActiveRequest else { return }
         let reading = sensor.reading
         guard reading.state == .paused, !reading.settling, reading.strong,
               reading.changedAt != stallReportedFor else { return }
@@ -303,6 +305,18 @@ final class MirrorController: ObservableObject {
     }
 
     func tick() {
+        if mirrorIsTucked {
+            if toggle.hasActiveRequest, let pending = desiredState {
+                deferredTarget = pending
+                invalidateControl(reason: "镜像已收起，恢复后继续播放控制")
+            }
+            return
+        }
+        if let pending = deferredTarget {
+            deferredTarget = nil
+            _ = request(pending)
+            return
+        }
         checkForStall()
         guard isInspecting || toggle.hasActiveRequest else { return }
         let now = Date().timeIntervalSince1970
@@ -365,6 +379,16 @@ final class MirrorController: ObservableObject {
         }
         point = CGPoint(x: (location.x - frame.minX) / frame.width, y: (location.y - frame.minY) / frame.height)
         invalidateControl(reason: "触点已记录；请确认已打开视频页")
+    }
+
+    /// True while iPhone Mirroring is minimized or its app is hidden.
+    private var mirrorIsTucked: Bool {
+        guard let window,
+              let app = NSRunningApplication(processIdentifier: window.pid), !app.isTerminated else { return false }
+        if app.isHidden { return true }
+        var minimized: CFTypeRef?
+        return AXUIElementCopyAttributeValue(window.element, kAXMinimizedAttribute as CFString, &minimized) == .success
+            && (minimized as? Bool) == true
     }
 
     private func canObserve() -> Bool {
@@ -446,7 +470,7 @@ final class MirrorController: ObservableObject {
     func request(_ desired: KnownState) -> Bool {
         guard desired != .unknown else { return false }
         guard controlEnabled else { message = "自动播控尚未开启；当前只显示接力提醒"; return false }
-        guard AccessibilityProbe.isTrusted, canObserve() else { return false }
+        guard AccessibilityProbe.isTrusted else { return false }
         installInputMonitorIfNeeded()
         guard inputMonitor != nil else { message = "无法监听手动操作，未启动自动播控"; return false }
         guard !userTakeover else {
@@ -456,6 +480,13 @@ final class MirrorController: ObservableObject {
         }
         guard let window, let normalized = point else { return false }
         let target = Self.coreState(desired)
+        if mirrorIsTucked {
+            deferredTarget = desired
+            message = "镜像已收起，恢复后继续播放控制"
+            trace("deferred_\(target.rawValue)")
+            return true
+        }
+        guard canObserve() else { return false }
         if toggle.hasActiveRequest && toggle.desiredState == target { return false }
         invalidateControl(reason: "切换中")
         _ = toggle.request(target, now: Date().timeIntervalSince1970)
