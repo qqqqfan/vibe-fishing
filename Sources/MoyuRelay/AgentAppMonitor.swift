@@ -59,6 +59,7 @@ final class AgentAppMonitor: @unchecked Sendable {
     private var windowBundles: [String: String] = [:]
     private var webAreas: [String: AXUIElement] = [:]
     private var prepared = Set<pid_t>()
+    private var prepareAttempts: [pid_t: TimeInterval] = [:]
     private var vocabulary = ControlVocabulary.standard
     private var vocabularyStamp: Date?
     private var lastVocabularyCheck: TimeInterval = 0
@@ -123,11 +124,27 @@ final class AgentAppMonitor: @unchecked Sendable {
         for target in targets {
             let app = AXUIElementCreateApplication(target.pid)
             AXUIElementSetMessagingTimeout(app, 0.25)
-            if prepared.insert(target.pid).inserted {
+            if !prepared.contains(target.pid),
+               now - (prepareAttempts[target.pid] ?? -.infinity) >= 2 {
                 // Chromium-based clients build their accessibility tree only
-                // when asked. This flag does not change their appearance.
+                // when asked. A freshly launched app often answers
+                // "cannot complete"; keep retrying until it succeeds, or the
+                // stop button stays invisible and AI start is never detected.
+                prepareAttempts[target.pid] = now
                 let status = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
-                log("prepare \(target.bundleID) pid=\(target.pid) manual=\(status.rawValue)")
+                if status == .attributeUnsupported {
+                    // Some Chromium shells (e.g. ChatGPT/Codex) ignore the
+                    // manual flag and only expose web content to
+                    // AXEnhancedUserInterface; without it no stop button is seen.
+                    let enhanced = AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+                    log("prepare \(target.bundleID) pid=\(target.pid) manual=\(status.rawValue) enhanced=\(enhanced.rawValue)")
+                    // Any definite answer ends the retries; only "cannot
+                    // complete" (app not ready yet) is worth retrying.
+                    if enhanced != .cannotComplete { prepared.insert(target.pid) }
+                } else {
+                    log("prepare \(target.bundleID) pid=\(target.pid) manual=\(status.rawValue)")
+                    if status == .success { prepared.insert(target.pid) }
+                }
             }
             var raw: CFTypeRef?
             guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
@@ -167,6 +184,7 @@ final class AgentAppMonitor: @unchecked Sendable {
         }
         let alive = Set(targets.map(\.pid))
         prepared = prepared.filter(alive.contains)
+        prepareAttempts = prepareAttempts.filter { alive.contains($0.key) }
         let status = targets.isEmpty ? "未检测到 AI 应用"
             : "已检测到 \(Set(targets.map(\.name)).sorted().joined(separator: "、"))"
         DispatchQueue.main.async { self.onStatus?(status) }

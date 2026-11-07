@@ -368,7 +368,7 @@ struct LaunchHomeView: View {
             }
             HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(store.launch.isWaitingForSignal ? "准备好了" : store.state.displayName)
+                    Text(store.state == .idle ? "等待 AI 开始" : store.state.displayName)
                         .font(.system(size: 28, weight: .bold, design: .rounded)).tracking(-0.5)
                     Text(dashboardDescription).font(.system(size: 13)).lineSpacing(3).foregroundStyle(VFTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -377,7 +377,7 @@ struct LaunchHomeView: View {
             }
             VStack(spacing: 0) {
                 statusRow(symbol: "macwindow", name: store.selectedWindow?.appName ?? "AI 应用",
-                          value: store.launch.isWaitingForSignal ? "等待首条任务" : store.state.displayName,
+                          value: store.state == .idle ? "待命" : store.state.displayName,
                           active: store.state == .running)
                 Rectangle().fill(VFTheme.line).frame(height: 1).padding(.leading, 52)
                 statusRow(symbol: isLocal ? "film" : "iphone", name: isLocal ? "本地视频" : "iPhone 镜像",
@@ -387,12 +387,7 @@ struct LaunchHomeView: View {
             if isLocal {
                 NativeVideoView(player: store.playback.player).frame(height: 150).background(Color.black)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                Button(store.manuallyPaused ? "恢复自动接力" : "保持暂停") { store.toggleUserPause() }
-                    .buttonStyle(VFSecondaryButtonStyle())
             } else {
-                if store.mirror.userTakeover {
-                    VFNotice(text: "手动使用镜像中，自动播控已暂挂；AI 提醒仍有效。", symbol: "hand.raised", warning: true)
-                }
                 if store.mirror.audioHealth == .low {
                     VFNotice(text: "媒体音频信号较弱，播放状态判断可能不准确。", symbol: "speaker.wave.1", warning: true)
                 } else if store.mirror.audioHealth == .none {
@@ -433,7 +428,7 @@ struct LaunchHomeView: View {
         }
     }
     private var dashboardDescription: String {
-        if store.launch.isWaitingForSignal { return "在 AI 应用发送一条消息，即可开始。" }
+        if store.state == .idle { return "AI 开始思考时视频自动播放。" }
         switch store.state {
         case .running: return "任务进行中，视频会自动续播。"
         case .completed: return "本轮任务已完成，可以回到 AI 应用。"

@@ -50,7 +50,7 @@ final class LaunchCoordinator: ObservableObject {
     var isWaitingForSignal: Bool { isStarted && store?.listening == true && !flow.agentEventsVerified }
     var primaryActionTitle: String {
         if isBusy { return "处理中…" }
-        if isWaitingForSignal { return "等待 AI 生成" }
+        if isWaitingForSignal { return "已连接" }
         switch flow.currentStep {
         case .grantPermissions:
             if store?.permissions.accessibilityGranted == true { return "继续" }

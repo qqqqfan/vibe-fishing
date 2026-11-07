@@ -207,6 +207,13 @@ final class MirrorController: ObservableObject {
         _ = request(target)
     }
 
+    /// Accessibility may be granted after the app launches (for example after
+    /// a TCC reset). Reinstall global/local shortcut monitors at that point.
+    func accessibilityTrustDidChange() {
+        guard AccessibilityProbe.isTrusted else { return }
+        installInputMonitorIfNeeded()
+    }
+
     private func installInputMonitorIfNeeded() {
         guard Self.automaticControlAvailable else { return }
         guard inputMonitor == nil, AccessibilityProbe.isTrusted else { return }
@@ -740,6 +747,9 @@ final class MirrorController: ObservableObject {
     /// plays, so it is not a takeover. Silent input only counts as a takeover
     /// when no sound appears: a manual resume tap brings audio back quickly.
     private func noteManualMirrorUse() {
+        // Video state is a pure function of the agent state: thinking = play,
+        // anything else = pause. Manual use of the phone never suspends that.
+        return
         guard !userTakeover else { return }
         takeoverProbe?.cancel()
         takeoverProbe = Task { [weak self] in

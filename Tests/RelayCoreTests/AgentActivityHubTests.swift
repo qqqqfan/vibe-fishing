@@ -105,7 +105,17 @@ final class GenerationDetectorTests: XCTestCase {
         XCTAssertEqual(detector.observe(obs(stop: true), at: 0.5), nil)
         XCTAssertEqual(detector.observe(obs(stop: false), at: 1.0), nil)
         XCTAssertEqual(detector.observe(obs(stop: false), at: 1.5), nil)
-        XCTAssertEqual(detector.observe(obs(stop: false), at: 2.0), .completed)
+        XCTAssertEqual(detector.observe(obs(stop: false), at: 2.0), nil)
+        XCTAssertEqual(detector.observe(obs(stop: false), at: 3.0), .completed)
+    }
+
+    func testTwoSecondRerenderGapDoesNotComplete() {
+        var detector = GenerationDetector()
+        _ = detector.observe(obs(stop: true), at: 0)
+        XCTAssertEqual(detector.observe(obs(stop: false), at: 0.5), nil)
+        XCTAssertEqual(detector.observe(obs(stop: false), at: 2.4), nil)
+        XCTAssertEqual(detector.observe(obs(stop: true), at: 2.5), nil)
+        XCTAssertEqual(detector.state, .running)
     }
 
     func testBriefRerenderBetweenToolCallsDoesNotComplete() {
@@ -135,7 +145,7 @@ final class GenerationDetectorTests: XCTestCase {
         var detector = GenerationDetector()
         _ = detector.observe(obs(stop: true), at: 0)
         let first = detector.turnID
-        _ = detector.observe(obs(stop: false), at: 2)
+        _ = detector.observe(obs(stop: false), at: 3)
         _ = detector.observe(obs(stop: true), at: 5)
         XCTAssertFalse(first == detector.turnID)
     }
@@ -156,7 +166,7 @@ final class GenerationDetectorTests: XCTestCase {
         _ = detector.observe(obs(stop: false, approval: true), at: 1)
         XCTAssertEqual(detector.observe(obs(stop: false, approval: true), at: 1.5), .needsInput)
         XCTAssertEqual(detector.observe(obs(stop: false), at: 2), nil)
-        XCTAssertEqual(detector.observe(obs(stop: false), at: 3), .completed)
+        XCTAssertEqual(detector.observe(obs(stop: false), at: 4.5), .completed)
     }
 
     func testApprovalWordsOutsideAGenerationAreIgnored() {

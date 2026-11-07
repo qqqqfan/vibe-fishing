@@ -196,7 +196,10 @@ public struct GenerationDetector {
     private var approvalLastSeen: TimeInterval?
     private var approvalSince: TimeInterval?
 
-    public init(completionHold: TimeInterval = 1.2, approvalHold: TimeInterval = 0.4) {
+    /// Chromium clients re-render the composer between tool calls and
+    /// can hide the stop button for ~2 s mid-turn; 1.2 s produced false
+    /// "completed" flips (pause, then play again).
+    public init(completionHold: TimeInterval = 2.5, approvalHold: TimeInterval = 0.4) {
         self.completionHold = completionHold
         self.approvalHold = approvalHold
     }
@@ -252,7 +255,10 @@ public struct ControlVocabulary: Equatable, Codable {
                "中断", "终止", "停止流式传输"],
         approval: ["allow once", "allow this time", "always allow", "approve", "approve once", "approve and continue",
                    "allow", "run command", "允许一次", "仅允许一次", "本次允许", "始终允许", "批准", "批准并继续",
-                   "允许此操作", "允许", "运行命令"])
+                   "允许此操作", "允许", "运行命令",
+                   // Codex/ChatGPT inline question cards: the agent is waiting
+                   // for the user's answer while its stop button stays visible.
+                   "跳过", "下一步", "skip", "next"])
 
     public init(stop: [String], approval: [String]) {
         self.stop = stop

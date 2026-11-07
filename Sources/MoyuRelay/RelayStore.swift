@@ -268,6 +268,14 @@ final class RelayStore: ObservableObject {
         startInboxWatcher()
         agentMonitor.start()
         message = "等待 AI 生成"
+        // Video state is a pure function of agent state from the first second:
+        // give the monitor one scan to see an agent that is already thinking
+        // (that fires .play itself); if nothing is thinking, force a pause.
+        let session = listenSince
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self, self.listening, self.listenSince == session else { return }
+            self.reconcilePlayback()
+        }
     }
 
     func stopListening() {
@@ -341,7 +349,7 @@ final class RelayStore: ObservableObject {
         guard let after, after != before, after.state == event.state,
               before?.state != after.state || before?.turnID != after.turnID else { return }
         let name = Self.sourceName(event.source)
-        state = event.state
+        state = focusedAgentState
         boundSession = name
         manuallyPaused = hub.manuallyPaused
         if mode != .demo { launch.recordAgentEvent() }
@@ -363,7 +371,36 @@ final class RelayStore: ObservableObject {
         default:
             message = event.state.displayName
         }
-        apply(actions)
+        // Reminders still come from every app; play/pause only from the agent
+        // the user is looking at.
+        apply(actions.filter { if case .requestAttention = $0 { return true }; return false })
+        reconcilePlayback()
+    }
+
+    /// Video follows exactly one agent: the selected AI app, which follows
+    /// focus. Command-line hook sources have no window and always count.
+    private func countsForPlayback(_ source: String) -> Bool {
+        guard source.hasPrefix(AgentAppMonitor.sourcePrefix),
+              let bundle = selectedWindow?.bundleID, !bundle.isEmpty else { return true }
+        return source == AgentAppMonitor.sourcePrefix + bundle
+    }
+
+    var focusedAgentRunning: Bool {
+        !hub.manuallyPaused && hub.entries.contains { countsForPlayback($0.key.source) && $0.value.state == .running }
+    }
+
+    private var focusedAgentState: AgentState {
+        let relevant = hub.entries.filter { countsForPlayback($0.key.source) }
+        if relevant.values.contains(where: { $0.state == .running }) { return .running }
+        return relevant.values.max { $0.updatedAt < $1.updatedAt }?.state ?? .idle
+    }
+
+    /// The absolute rule: focused agent thinking = play, otherwise pause.
+    /// Called on every accepted event, focus switch and connection start.
+    func reconcilePlayback() {
+        guard listening else { return }
+        state = focusedAgentState
+        apply([focusedAgentRunning ? .play : .pause])
         syncMirrorExpectation()
     }
 
@@ -452,10 +489,11 @@ final class RelayStore: ObservableObject {
 
     /// Switch the connected AI window from the companion strip at any time.
     func switchRelayWindow(_ id: String) {
-        guard id != selectedWindowID, let window = windows.first(where: { $0.id == id }) else { return }
+        guard id != selectedWindowID, windows.contains(where: { $0.id == id }) else { return }
         selectedWindowID = id
         bringSelectedClientForward()
         launch.rearrangeLayout()
+        reconcilePlayback()
     }
 
     /// When the user focuses another connected AI app, follow silently:
@@ -463,12 +501,14 @@ final class RelayStore: ObservableObject {
     private func autoSwitchFocus(to app: NSRunningApplication) {
         guard let window = windows.first(where: { $0.pid == app.processIdentifier }),
               window.id != selectedWindowID else { return }
+        let previousBundle = selectedWindow?.bundleID
         selectedWindowID = window.id
+        if window.bundleID != previousBundle { reconcilePlayback() }
     }
 
     /// Lets the mirror tell a finished video apart from a pause it asked for.
     private func syncMirrorExpectation() {
-        mirror.agentWorking = listening && hub.anyRunning && !hub.manuallyPaused
+        mirror.agentWorking = listening && focusedAgentRunning
     }
 
     private func apply(_ actions: [RelayAction]) {
@@ -536,7 +576,11 @@ final class RelayStore: ObservableObject {
         if now - lastPermissionCheck > 2 {
             permissions.refresh()
             let newTrust = AccessibilityProbe.isTrusted
-            if newTrust != trusted { trusted = newTrust; refreshWindows() }
+            if newTrust != trusted {
+                trusted = newTrust
+                refreshWindows()
+                mirror.accessibilityTrustDidChange()
+            }
             lastPermissionCheck = now
         }
         if listening {

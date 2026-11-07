@@ -276,10 +276,27 @@ final class WindowDock {
         return element
     }
 
+    /// AXEnhancedUserInterface (needed to read some Chromium apps' content)
+    /// makes those apps animate or resist programmatic moves. Turn it off only
+    /// for the duration of one move/resize, then restore it.
+    private func withEnhancedUIPaused<T>(for element: AXUIElement, _ body: () -> T) -> T {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success else { return body() }
+        let app = AXUIElementCreateApplication(pid)
+        var raw: CFTypeRef?
+        let enabled = AXUIElementCopyAttributeValue(app, "AXEnhancedUserInterface" as CFString, &raw) == .success
+            && (raw as? Bool) == true
+        if enabled { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse) }
+        defer { if enabled { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue) } }
+        return body()
+    }
+
     private func setPosition(_ position: CGPoint, of element: AXUIElement) throws {
         var value = position
         guard let boxed = AXValueCreate(.cgPoint, &value) else { throw LayoutFailure(message: "无法创建窗口位置") }
-        let status = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, boxed)
+        let status = withEnhancedUIPaused(for: element) {
+            AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, boxed)
+        }
         guard status == .success else {
             throw LayoutFailure(message: "设置窗口位置失败（AX=\(status.rawValue)）；部分窗口可能已改变，请检查后重试")
         }
@@ -402,7 +419,9 @@ final class WindowDock {
     private func setSize(_ size: CGSize, of element: AXUIElement, name: String = "AI") throws {
         var value = size
         guard let boxed = AXValueCreate(.cgSize, &value) else { throw LayoutFailure(message: "无法创建窗口尺寸") }
-        let status = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, boxed)
+        let status = withEnhancedUIPaused(for: element) {
+            AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, boxed)
+        }
         guard status == .success else {
             throw LayoutFailure(message: "设置\(name)窗口尺寸失败（AX=\(status.rawValue)）；请检查窗口后重试")
         }
